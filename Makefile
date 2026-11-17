@@ -1,5 +1,5 @@
 ARCH = arm64
-CROSS_COMPILE = aarch64-linux-
+CROSS_COMPILE = /home/student/reuvenTemp/rpi-buildroot-2026.08/output/host/bin/aarch64-linux- 
 obj-m = my_module.o
 ROOTDIR=/home/$${USER}/reuvenTemp/rpi-buildroot-2026.08/output/build/linux-custom
 PWD = $(shell pwd)
