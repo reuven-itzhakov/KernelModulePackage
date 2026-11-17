@@ -1,3 +1,10 @@
-/Config.in
-/my_module.ko
-/my_module.mk
+Config.in
+my_module.ko
+my_module.mk
+my_module.mod*
+my_module.o
+modules.order
+Module.symvers
+..module-common.o.cmd
+.m*
+.M*
