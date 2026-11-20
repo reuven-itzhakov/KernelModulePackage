@@ -1,10 +1,12 @@
-ARCH = arm64
-CROSS_COMPILE = /home/student/reuvenTemp/rpi-buildroot-2026.08/output/host/bin/aarch64-linux- 
-obj-m = my_module.o
-ROOTDIR=/home/$${USER}/reuvenTemp/rpi-buildroot-2026.08/output/build/linux-custom
-PWD = $(shell pwd)
+ARCH ?= arm64
+CROSS_COMPILE ?= aarch64-linux-
+ROOTDIR ?= /lib/modules/$(shell uname -r)/build
+
+obj-m := my_module.o
+PWD := $(shell pwd)
+
 default:
-	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) -C $(ROOTDIR) ARCH=$(ARCH) M=$(PWD) modules
+	$(MAKE) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(ROOTDIR) M=$(PWD) modules
 
 clean:
-	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) -C $(ROOTDIR) ARCH=$(ARCH) M=$(PWD) clean
+	$(MAKE) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(ROOTDIR) M=$(PWD) clean
