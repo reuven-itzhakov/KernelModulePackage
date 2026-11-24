@@ -6,6 +6,10 @@
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include "my_ioctl.h"
+#include <linux/platform_device.h>
+#include <linux/mod_devicetable.h>
+#include <linux/of.h>
+#include <linux/version.h>
 
 #define DEVICE_NAME "my_module"
 #define CLASS_NAME  "my_module_class"
@@ -31,13 +35,10 @@ static int my_open(struct inode *inode, struct file *filp){
     struct my_device_data *dev_data;
 
     dev_data = container_of(inode->i_cdev, struct my_device_data, cdev);
-
     filp->private_data = dev_data;
-
     dev_data->total_opens++;
 
     pr_info("%s: Device opened %d times\n", DEVICE_NAME, dev_data->total_opens);
-
     return 0;
 }
 
@@ -45,11 +46,9 @@ static int my_release(struct inode *inode, struct file *filp){
     struct my_device_data *dev_data;
 
     dev_data = (struct my_device_data *)filp->private_data;
-
     dev_data->total_closes++;
 
     pr_info("%s: Device closed %d times\n", DEVICE_NAME, dev_data->total_closes);
-
     return 0;
 }
 
@@ -186,8 +185,44 @@ static const struct file_operations my_fops = {
     .unlocked_ioctl = my_ioctl,
 };
 
-static int __init my_module_init(void){
+static void print_dt_properties(struct platform_device *pdev, const char *func_name){
+    struct device_node *np = pdev->dev.of_node;
+    u32 addr_cells = 0;
+    u32 size_cells = 0;
+    int parent_addr_cells;
+    int parent_size_cells;
+    bool bool_prop;
+
+    if (!np) {
+        pr_warn("%s (%s): No device tree node associated with device\n", DEVICE_NAME, func_name);
+        return;
+    }
+
+    if (of_property_read_u32(np, "#address-cells", &addr_cells) == 0) {
+        pr_info("%s (%s): node #address-cells = %u\n", DEVICE_NAME, func_name, addr_cells);
+    } else {
+        pr_info("%s (%s): #address-cells property not found on node\n", DEVICE_NAME, func_name);
+    }
+
+    if (of_property_read_u32(np, "#size-cells", &size_cells) == 0) {
+        pr_info("%s (%s): node #size-cells = %u\n", DEVICE_NAME, func_name, size_cells);
+    } else {
+        pr_info("%s (%s): #size-cells property not found on node\n", DEVICE_NAME, func_name);
+    }
+
+    parent_addr_cells = of_n_addr_cells(np);
+    parent_size_cells = of_n_size_cells(np);
+    pr_info("%s (%s): of_n_addr_cells = %d, of_n_size_cells = %d\n", DEVICE_NAME, func_name, parent_addr_cells, parent_size_cells);
+
+    bool_prop = (of_get_property(np, "my-bool-prop", NULL) != NULL);
+    pr_info("%s (%s): my-bool-prop = %s\n", DEVICE_NAME, func_name, bool_prop ? "true" : "false");
+}
+
+static int my_probe(struct platform_device *pdev){
     int ret;
+
+    pr_info("%s: probe function called\n", DEVICE_NAME);
+    print_dt_properties(pdev, "probe");
 
     my_dev_data.head = 0;
     my_dev_data.tail = 0;
@@ -214,12 +249,14 @@ static int __init my_module_init(void){
         goto class_create_failed;
     }
 
-    my_dev_data.my_device = device_create(my_dev_data.my_class, NULL, my_dev, NULL, DEVICE_NAME);
+    my_dev_data.my_device = device_create(my_dev_data.my_class, &pdev->dev, my_dev, NULL, DEVICE_NAME);
     if (IS_ERR(my_dev_data.my_device)) {
         ret = PTR_ERR(my_dev_data.my_device);
         pr_err("%s: Failed to create device (err=%d)\n", DEVICE_NAME, ret);
         goto device_create_failed;
     }
+
+    platform_set_drvdata(pdev, &my_dev_data);
 
     pr_info("%s: Device created at /dev/%s (Major = %d, Minor = %d)\n",
             DEVICE_NAME, DEVICE_NAME, MAJOR(my_dev), MINOR(my_dev));
@@ -236,19 +273,38 @@ alloc_chrdev_region_failed:
     return ret;
 }
 
-static void __exit my_module_exit(void){
-    device_destroy(my_dev_data.my_class, my_dev);
-    class_destroy(my_dev_data.my_class);
-    cdev_del(&my_dev_data.cdev);
+static void my_remove(struct platform_device *pdev){
+    struct my_device_data *dev_data = platform_get_drvdata(pdev);
+
+    pr_info("%s: remove function called\n", DEVICE_NAME);
+    print_dt_properties(pdev, "remove");
+
+    device_destroy(dev_data->my_class, my_dev);
+    class_destroy(dev_data->my_class);
+    cdev_del(&dev_data->cdev);
     unregister_chrdev_region(my_dev, MINOR_COUNT);
 
     pr_info("%s: Character device unregistered and /dev/%s removed\n",
             DEVICE_NAME, DEVICE_NAME);
 }
 
-module_init(my_module_init);
-module_exit(my_module_exit);
+static const struct of_device_id my_dt_ids[] = {
+    { .compatible = "logtel,my-module" },
+    { }
+};
+MODULE_DEVICE_TABLE(of, my_dt_ids);
+
+static struct platform_driver my_platform_driver = {
+    .probe  = my_probe,
+    .remove = my_remove,
+    .driver = {
+        .name           = DEVICE_NAME,
+        .of_match_table = of_match_ptr(my_dt_ids),
+    },
+};
+
+module_platform_driver(my_platform_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Reuven");
-MODULE_DESCRIPTION("Character device driver with circular buffer and ioctl stats");
+MODULE_DESCRIPTION("Platform and Character device driver reading Device Tree properties");
