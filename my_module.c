@@ -4,6 +4,8 @@
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
+#include <linux/uaccess.h>
+#include "my_ioctl.h"
 
 #define DEVICE_NAME "my_module"
 #define CLASS_NAME  "my_module_class"
@@ -27,27 +29,27 @@ static struct my_device_data my_dev_data;
 
 static int my_open(struct inode *inode, struct file *filp){
     struct my_device_data *dev_data;
-    
+
     dev_data = container_of(inode->i_cdev, struct my_device_data, cdev);
-    
+
     filp->private_data = dev_data;
-    
+
     dev_data->total_opens++;
-    
+
     pr_info("%s: Device opened %d times\n", DEVICE_NAME, dev_data->total_opens);
-    
+
     return 0;
 }
 
 static int my_release(struct inode *inode, struct file *filp){
     struct my_device_data *dev_data;
-    
+
     dev_data = (struct my_device_data *)filp->private_data;
-    
+
     dev_data->total_closes++;
-    
+
     pr_info("%s: Device closed %d times\n", DEVICE_NAME, dev_data->total_closes);
-    
+
     return 0;
 }
 
@@ -142,16 +144,49 @@ static ssize_t my_write(struct file *filp, const char __user *buf, size_t count,
     return to_write;
 }
 
+static long my_ioctl(struct file *filp, unsigned int cmd, unsigned long arg){
+    struct my_device_data *dev_data = filp->private_data;
+    struct my_driver_stats stats;
+
+    if (_IOC_TYPE(cmd) != MY_IOC_MAGIC){
+        return -ENOTTY;
+    }
+
+    switch (cmd){
+    case MY_IOC_GET_STATS:
+        stats.total_opens = dev_data->total_opens;
+        stats.total_closes = dev_data->total_closes;
+
+        if (copy_to_user((struct my_driver_stats __user *)arg, &stats, sizeof(stats)) != 0){
+            return -EFAULT;
+        }
+        pr_info("%s: Retrieved stats via ioctl (opens=%d, closes=%d)\n",
+                DEVICE_NAME, stats.total_opens, stats.total_closes);
+        break;
+
+    case MY_IOC_CLEAR_STATS:
+        dev_data->total_opens = 0;
+        dev_data->total_closes = 0;
+        pr_info("%s: Cleared stats via ioctl\n", DEVICE_NAME);
+        break;
+
+    default:
+        return -ENOTTY;
+    }
+
+    return 0;
+}
+
 static const struct file_operations my_fops = {
     .owner = THIS_MODULE,
     .open = my_open,
     .release = my_release,
     .read = my_read,
     .write = my_write,
+    .unlocked_ioctl = my_ioctl,
 };
 
-static int __init my_module_init(void)
-{
+static int __init my_module_init(void){
     int ret;
 
     my_dev_data.head = 0;
@@ -201,8 +236,7 @@ alloc_chrdev_region_failed:
     return ret;
 }
 
-static void __exit my_module_exit(void)
-{
+static void __exit my_module_exit(void){
     device_destroy(my_dev_data.my_class, my_dev);
     class_destroy(my_dev_data.my_class);
     cdev_del(&my_dev_data.cdev);
@@ -217,4 +251,4 @@ module_exit(my_module_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Reuven");
-MODULE_DESCRIPTION("Character device driver with automatic /dev file creation");
+MODULE_DESCRIPTION("Character device driver with circular buffer and ioctl stats");
